@@ -214,6 +214,8 @@ pub enum AgentKind {
     KiroCli,
     /// Command Code CLI.
     CommandCode,
+    /// Qwen Code CLI (Alibaba Group).
+    QwenCode,
     /// Hermes Agent (Nous Research).
     Hermes,
     /// Anything else (manual capture, future agents).
@@ -226,7 +228,7 @@ impl AgentKind {
     /// CHECK constraint accepts every kind (the Zero integration shipped
     /// with the enum variant but without the V26 migration and only a
     /// live test caught it). Extend together with the enum.
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::ClaudeCode,
         Self::Codex,
         Self::OpenCode,
@@ -244,6 +246,7 @@ impl AgentKind {
         Self::KimiCode,
         Self::KiroCli,
         Self::CommandCode,
+        Self::QwenCode,
         Self::Hermes,
         Self::Other,
     ];
@@ -269,6 +272,7 @@ impl AgentKind {
             Self::KimiCode => "kimi-code",
             Self::KiroCli => "kiro-cli",
             Self::CommandCode => "command-code",
+            Self::QwenCode => "qwen-code",
             Self::Hermes => "hermes",
             Self::Other => "other",
         }
@@ -297,6 +301,7 @@ impl AgentKind {
             "kimi-code" | "kimi" => Self::KimiCode,
             "kiro-cli" | "kiro" => Self::KiroCli,
             "command-code" | "commandcode" | "cmdc" | "cmd" => Self::CommandCode,
+            "qwen-code" | "qwen" | "qwen-code-cli" => Self::QwenCode,
             "hermes" | "hermes-agent" => Self::Hermes,
             _ => Self::Other,
         }
@@ -466,6 +471,31 @@ mod tests {
         );
         assert!(AgentKind::CommandCode.session_start_injects_handoff());
         assert!(!AgentKind::CommandCode.user_prompt_injects_handoff());
+    }
+
+    #[test]
+    fn agent_kind_qwen_code_round_trips_and_injects_session_start_handoff() {
+        assert_eq!(AgentKind::QwenCode.as_str(), "qwen-code");
+        for alias in ["qwen-code", "qwen", "qwen-code-cli"] {
+            assert_eq!(AgentKind::from_wire(alias), AgentKind::QwenCode);
+        }
+        assert_eq!(
+            serde_json::to_string(&AgentKind::QwenCode).unwrap(),
+            "\"qwen-code\""
+        );
+        assert_eq!(
+            serde_json::from_str::<AgentKind>("\"qwen-code\"").unwrap(),
+            AgentKind::QwenCode
+        );
+        // Unknown tags still degrade to Other.
+        assert_eq!(AgentKind::from_wire("qwen3"), AgentKind::Other);
+        // Qwen Code consumes SessionStart hook stdout as JSON and injects
+        // hookSpecificOutput.additionalContext into the session (verified
+        // against v0.21.14: a SessionStart hook printing the envelope made
+        // the word visible to the model). UserPromptSubmit additionalContext
+        // exists too, but SessionStart delivers the handoff without a prompt.
+        assert!(AgentKind::QwenCode.session_start_injects_handoff());
+        assert!(!AgentKind::QwenCode.user_prompt_injects_handoff());
     }
 
     #[test]

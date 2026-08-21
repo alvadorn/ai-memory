@@ -77,6 +77,7 @@ pub fn run(config: &Config, args: InstallMcpArgs) -> Result<()> {
         McpClient::KimiCode => render_kimi_code(&args)?,
         McpClient::KiroCli => render_kiro_cli(&args)?,
         McpClient::CommandCode => render_command_code(&args)?,
+        McpClient::QwenCode => render_qwen_code(&args)?,
         McpClient::Swival => render_swival(&args)?,
         McpClient::VsCodeCopilot => render_vscode_copilot(&args)?,
         McpClient::Zed => render_zed(&args)?,
@@ -213,6 +214,10 @@ pub(crate) fn mcp_config_path(client: crate::cli::McpClient) -> Result<PathBuf> 
             .join("settings")
             .join("mcp.json"),
         McpClient::CommandCode => home()?.join(".commandcode").join("mcp.json"),
+        // Qwen Code keeps MCP servers in the `mcpServers` map of the same
+        // settings.json that holds hooks (project scope: `.qwen/settings.json`
+        // under the checkout — pass --config-file for that).
+        McpClient::QwenCode => home()?.join(".qwen").join("settings.json"),
         McpClient::Swival => {
             let cwd = std::env::current_dir()
                 .context("could not resolve current dir for .swival/mcp.json default")?;
@@ -487,6 +492,7 @@ fn json_mcp_location(client: McpClient) -> Option<JsonMcpLocation> {
         | McpClient::KimiCode
         | McpClient::KiroCli
         | McpClient::CommandCode
+        | McpClient::QwenCode
         | McpClient::Swival => Some(JsonMcpLocation::RootMcpServers),
         McpClient::OpenCode => Some(JsonMcpLocation::RootMcp),
         // Zero's config.json nests servers under `mcp.servers`, the same
@@ -710,6 +716,15 @@ fn build_mcp_entry(args: &InstallMcpArgs) -> Result<serde_json::Value> {
             entry.insert("transport".into(), json!("http"));
             entry.insert("enabled".into(), json!(true));
             entry.insert("url".into(), json!(server_url));
+            if let Some(b) = &bearer {
+                entry.insert("headers".into(), json!({"Authorization": b}));
+            }
+        }
+        McpClient::QwenCode => {
+            // Qwen Code (verified against v0.21.14 `qwen mcp add --transport
+            // http`) uses `httpUrl` with no `type` field — the transport is
+            // implied by the key (`url` is legacy SSE, `command` stdio).
+            entry.insert("httpUrl".into(), json!(server_url));
             if let Some(b) = &bearer {
                 entry.insert("headers".into(), json!({"Authorization": b}));
             }
@@ -1211,6 +1226,24 @@ fn render_command_code(args: &InstallMcpArgs) -> Result<String> {
     ))
 }
 
+fn render_qwen_code(args: &InstallMcpArgs) -> Result<String> {
+    Ok(format!(
+        "# Qwen Code — merge the mcpServers map into ~/.qwen/settings.json\n\
+         # (project scope: .qwen/settings.json in the workspace root):\n\
+         #\n\
+         # Qwen Code uses `httpUrl` (not `url`) for streamable-HTTP servers;\n\
+         # the equivalent CLI registration is:\n\
+         #   qwen mcp add --scope user --transport http {name} {url}\n\
+         # Pair with `ai-memory install-hooks --agent qwen-code --apply` for\n\
+         # lifecycle capture; SessionStart injects handoffs as\n\
+         # hookSpecificOutput.additionalContext.\n\
+         {snippet}\n",
+        name = args.name,
+        url = args.server_url.as_deref().unwrap_or(DEFAULT_MCP_URL),
+        snippet = render_json_mcp_fragment(args)?,
+    ))
+}
+
 fn render_swival(args: &InstallMcpArgs) -> Result<String> {
     Ok(format!(
         "# Swival CLI — merge into .swival/mcp.json in the project root
@@ -1654,6 +1687,7 @@ mod tests {
             McpClient::KimiCode => render_kimi_code(&args).unwrap(),
             McpClient::KiroCli => render_kiro_cli(&args).unwrap(),
             McpClient::CommandCode => render_command_code(&args).unwrap(),
+            McpClient::QwenCode => render_qwen_code(&args).unwrap(),
             McpClient::Swival => render_swival(&args).unwrap(),
             McpClient::VsCodeCopilot => render_vscode_copilot(&args).unwrap(),
             McpClient::Zed => render_zed(&args).unwrap(),
@@ -1680,6 +1714,7 @@ mod tests {
             McpClient::KimiCode,
             McpClient::KiroCli,
             McpClient::CommandCode,
+            McpClient::QwenCode,
             McpClient::Swival,
             McpClient::VsCodeCopilot,
             McpClient::Zed,
@@ -1720,6 +1755,7 @@ mod tests {
             McpClient::KimiCode,
             McpClient::KiroCli,
             McpClient::CommandCode,
+            McpClient::QwenCode,
             McpClient::Swival,
             McpClient::VsCodeCopilot,
             McpClient::Zed,
@@ -1753,6 +1789,7 @@ mod tests {
             McpClient::KimiCode => render_kimi_code(&args).unwrap(),
             McpClient::KiroCli => render_kiro_cli(&args).unwrap(),
             McpClient::CommandCode => render_command_code(&args).unwrap(),
+            McpClient::QwenCode => render_qwen_code(&args).unwrap(),
             McpClient::Swival => render_swival(&args).unwrap(),
             McpClient::VsCodeCopilot => render_vscode_copilot(&args).unwrap(),
             McpClient::Zed => render_zed(&args).unwrap(),
@@ -1916,6 +1953,19 @@ mod tests {
         assert!(kiro.contains("install-hooks --agent kiro-cli-v3"));
         let kiro_with_token = render_with_token(McpClient::KiroCli);
         assert!(kiro_with_token.contains("\"Authorization\": \"Bearer test-token-deadbeef\""));
+        // Qwen Code: `httpUrl` (like Gemini CLI) with no `type`/`transport`
+        // field, under the top-level `mcpServers` map of settings.json —
+        // verified against v0.21.14 `qwen mcp add --transport http`.
+        let qwen = render_for_test(McpClient::QwenCode);
+        assert!(qwen.contains("\"mcpServers\""));
+        assert!(qwen.contains("\"httpUrl\": \"http://127.0.0.1:49374/mcp\""));
+        assert!(!qwen.contains("\"transport\""));
+        assert!(!qwen.contains("\"url\":"));
+        assert!(!qwen.contains("\"serverUrl\""));
+        assert!(qwen.contains("install-hooks --agent qwen-code"));
+        let qwen_with_token = render_with_token(McpClient::QwenCode);
+        assert!(qwen_with_token.contains("\"headers\""));
+        assert!(qwen_with_token.contains("\"Authorization\": \"Bearer test-token-deadbeef\""));
         // VS Code Copilot must use the `servers` top-level key — the
         // `mcpServers` form is silently ignored by VS Code's MCP
         // framework. Regression guard against a future copy-paste

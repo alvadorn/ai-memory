@@ -126,7 +126,7 @@ pub(crate) fn tool_observation_metadata(
 ) -> Option<ToolObservationMetadata> {
     let object = raw.as_object()?;
     let (name, id) = match agent {
-        AgentKind::ClaudeCode | AgentKind::CommandCode => (
+        AgentKind::ClaudeCode | AgentKind::CommandCode | AgentKind::QwenCode => (
             object.get("tool_name")?.as_str()?,
             object.get("tool_use_id").and_then(Value::as_str),
         ),
@@ -163,6 +163,7 @@ pub(crate) fn tool_observation_metadata(
                         agent,
                         AgentKind::ClaudeCode
                             | AgentKind::CommandCode
+                            | AgentKind::QwenCode
                             | AgentKind::Hermes
                             | AgentKind::KiroCli
                     ) {
@@ -533,6 +534,7 @@ fn extract(agent: AgentKind, raw: &Value) -> Extracted {
             .map(|name| (name, object.get("input"))),
         AgentKind::ClaudeCode
         | AgentKind::CommandCode
+        | AgentKind::QwenCode
         | AgentKind::Codex
         | AgentKind::Cursor
         | AgentKind::GeminiCli
@@ -610,8 +612,8 @@ fn family(name: &str) -> ToolFamily {
         "read_file" | "write_file" | "edit_file" | "patch" => ToolFamily::File,
         "search" | "grep" | "glob" | "find" | "list" | "ls" | "list_files" | "read_dir"
         | "list_dir" | "grep_search" | "search_files" => ToolFamily::SearchList,
-        "bash" | "shell" | "shell_command" | "execute" | "run_command" | "web_search"
-        | "terminal" | "execute_bash" | "execute_cmd" => ToolFamily::NonFile,
+        "bash" | "shell" | "shell_command" | "execute" | "run_command" | "run_shell_command"
+        | "web_search" | "terminal" | "execute_bash" | "execute_cmd" => ToolFamily::NonFile,
         _ => ToolFamily::Unknown,
     }
 }
@@ -1113,6 +1115,54 @@ mod tests {
             ("write_file", ToolFamily::File),
             ("edit_file", ToolFamily::File),
             ("shell_command", ToolFamily::NonFile),
+        ] {
+            assert_eq!(family(tool), expected, "tool: {tool}");
+        }
+    }
+
+    #[test]
+    fn qwen_code_live_tool_shape_is_closed_and_honors_exclusions() {
+        // Payload shape captured from a live Qwen Code v0.21.14 PostToolUse
+        // hook: `tool_name` / `tool_input` / `tool_use_id`, same closed
+        // vocabulary as Claude Code (its tools include `read_file`, `edit`,
+        // `run_shell_command`, `grep_search`, `glob`).
+        let policy = CapturePolicy::resolve(
+            CaptureSource::Parsed(&CaptureConfig {
+                ignore_paths: vec!["secret/**".into()],
+            }),
+            "/repo",
+            None,
+        );
+        let ignored = json!({
+            "session_id": "a5085e78-9680-41f7-8387-3447f9f2c181",
+            "cwd": "/repo",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "edit",
+            "tool_input": {
+                "file_path": "secret/token.txt",
+                "old_string": "old",
+                "new_string": "new"
+            },
+            "tool_use_id": "toolu_1787336664918_77vjbp4ju",
+            "tool_call_id": "call_389bc77fda34466383b01058"
+        });
+
+        let metadata = tool_observation_metadata(AgentKind::QwenCode, &ignored, true).unwrap();
+        assert_eq!(metadata.tool_family, ToolFamily::File);
+        assert_eq!(
+            metadata.tool_call_id.as_deref(),
+            Some("toolu_1787336664918_77vjbp4ju")
+        );
+        let decision = policy.inspect(AgentKind::QwenCode, &ignored, "/repo");
+        assert_eq!(decision.protocol().disposition(), CaptureDisposition::Drop);
+
+        for (tool, expected) in [
+            ("read_file", ToolFamily::File),
+            ("write_file", ToolFamily::File),
+            ("edit", ToolFamily::File),
+            ("run_shell_command", ToolFamily::NonFile),
+            ("grep_search", ToolFamily::SearchList),
+            ("glob", ToolFamily::SearchList),
         ] {
             assert_eq!(family(tool), expected, "tool: {tool}");
         }

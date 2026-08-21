@@ -595,6 +595,7 @@ const fn closed_tool_agent(agent: AgentKind) -> bool {
         agent,
         AgentKind::ClaudeCode
             | AgentKind::CommandCode
+            | AgentKind::QwenCode
             | AgentKind::OpenCode
             | AgentKind::Pi
             | AgentKind::AntigravityCli

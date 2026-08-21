@@ -827,6 +827,46 @@ and preserves `parentId` on visible events for branch provenance. An unknown
 future transcript version fails closed until its schema is audited. Direct
 `cmd`, `cmdc`, or `command-code` launches remain unchanged.
 
+### Qwen Code
+
+Qwen Code (Alibaba Group) keeps both MCP servers and lifecycle hooks in the
+same `~/.qwen/settings.json` — `mcpServers` for servers (with `httpUrl`
+marking streamable-HTTP transport) and `hooks` for lifecycle events using
+Claude Code's nested JSON shape. Project scope lives in
+`.qwen/settings.json` at the workspace root; pass `--config-file` to either
+installer for that.
+
+```bash
+ai-memory install-mcp --client qwen-code --apply \
+    --server-url "http://homelab:49374/mcp" \
+    --auth-token "$TOKEN"
+
+ai-memory install-hooks --agent qwen-code --apply \
+    --server-url "http://homelab:49374" \
+    --auth-token "$TOKEN"
+```
+
+The aliases `qwen` and `qwen-code-cli` are accepted. `install-hooks` merges
+ten events — `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
+`PostToolUseFailure` (Qwen Code fires `PostToolUse` on successful tool calls
+only and reports failures separately; the failure entry reuses the
+post-tool-use handler), `PreCompact`, `Stop`, `SessionEnd`,
+`SubagentStart`, and `SubagentStop` — preserving other settings, sibling
+`mcpServers` entries, and third-party hooks under the same events. Local
+installs default to native `ai-memory hook --event … --agent qwen-code`
+commands (local spool plus batched delivery, capture-policy v1 enforced);
+the staged script bundle under `~/.local/share/ai-memory/hooks/qwen-code/`
+is the compatibility fallback. A pending handoff is injected at
+`SessionStart` through `hookSpecificOutput.additionalContext`, which Qwen
+Code adds to the session context (verified against v0.21.14).
+
+In headless `qwen -p` runs `SessionEnd` did not fire during verification
+(the interactive TUI fires it); close such sessions manually:
+
+```bash
+ai-memory finalize-session --agent qwen-code
+```
+
 ### Kiro CLI
 
 Kiro CLI has one MCP surface and two incompatible lifecycle-hook formats.

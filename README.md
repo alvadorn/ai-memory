@@ -25,6 +25,7 @@
 | Claude Code | Supported | MCP config + lifecycle hooks; native commands enforce capture exclusions. `install-mcp --session-aware` optionally enables per-session auto-scope isolation through a local stdio bridge. Optionally captures the assistant's final turn on `Stop` when installed with `--capture-assistant` and the server enables `capture_assistant` (double opt-in, off by default). |
 | Codex | Supported | MCP config + lifecycle hooks; native commands enforce capture exclusions. No automatic true session-end hook, so run `ai-memory finalize-session` when you need a final summary/handoff. |
 | Command Code | Supported | MCP config (`~/.commandcode/mcp.json`) + its four stable lifecycle-hook events (`~/.commandcode/settings.json`); native commands enforce capture exclusions and `SessionStart` injects handoffs. `Stop` is only a turn boundary, so use `ai-memory finalize-session --agent command-code` after the final turn. `ai-memory run command-code` adds exact v3 native-session resume and visible-event import; experimental unsandboxed Mods remain excluded. |
+| Qwen Code | Supported | MCP config (`httpUrl` entry in the `mcpServers` map of `~/.qwen/settings.json`) + lifecycle hooks (Claude Code-shaped nested JSON in the same file, 10 events including subagent start/stop and `PostToolUseFailure`); project scope via `.qwen/settings.json`. Native commands enforce capture exclusions and `SessionStart` injects handoffs via `hookSpecificOutput.additionalContext` (verified against v0.21.14). Headless `qwen -p` runs may not fire `SessionEnd` — close them with `ai-memory finalize-session --agent qwen-code`. |
 | Devin CLI | Supported | MCP config + lifecycle hooks. Hooks use Devin's `PostCompaction` event, inject handoffs via `hookSpecificOutput.additionalContext`, and omit subagent events because Devin does not expose them. |
 | OpenCode | Supported | Remote MCP config + generated TypeScript plugin; generated plugin enforces capture exclusions. |
 | Cursor | Supported | MCP config + lifecycle hooks. |
@@ -161,7 +162,7 @@ priors are at the [bottom](#influences-and-prior-art).
   [MCP client activity](docs/users.md#mcp-client-activity).
 - **Multi-agent + multi-machine ready.** Supported clients: Claude
   Code, Codex, Command Code, Devin CLI, OpenCode, Cursor, Claude Desktop (via `mcp-remote`),
-  Gemini CLI, Antigravity CLI, Grok Build CLI, Kimi Code, OpenClaw, Oh My Pi
+  Gemini CLI, Antigravity CLI, Grok Build CLI, Kimi Code, Qwen Code, OpenClaw, Oh My Pi
   / OMP (`omp` / `oh-my-pi`), Pi via generated bridge extension, VS Code
   GitHub Copilot agent mode (MCP-only, workspace `.vscode/mcp.json`), Kiro CLI
   (MCP + v2 lifecycle hooks), and Zed (MCP-only, user `settings.json`).

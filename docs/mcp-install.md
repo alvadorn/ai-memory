@@ -1085,6 +1085,37 @@ OMP / Oh My Pi remains separate: use `--client omp` / `--agent omp` (or
 
 ---
 
+## Qwen Code
+
+**Status:** ✅ MCP and lifecycle capture supported. Qwen Code keeps both in
+the same `~/.qwen/settings.json`: hooks under `hooks` (Claude Code's nested
+JSON shape) and MCP servers under the `mcpServers` map, with `httpUrl` (not
+`url`) marking a streamable-HTTP server. Project scope lives in
+`.qwen/settings.json` at the workspace root — pass
+`--config-file .qwen/settings.json` to either installer for that.
+
+```bash
+# MCP entry (mcpServers, httpUrl field):
+ai-memory install-mcp --client qwen-code --apply
+
+# Lifecycle hooks (SessionStart fetches the pending handoff and Qwen Code
+# injects it as hookSpecificOutput.additionalContext):
+ai-memory install-hooks --agent qwen-code --apply
+```
+
+The equivalent native CLI registration is
+`qwen mcp add --transport http ai-memory http://127.0.0.1:49374/mcp`
+(user scope). Ten lifecycle events are wired, including
+`PostToolUseFailure` (Qwen Code fires `PostToolUse` on success only) and the
+subagent start/stop boundaries. Aliases: `--agent qwen`,
+`--client qwen-code-cli`.
+
+Verified against Qwen Code v0.21.14. Note: headless `qwen -p` runs did not
+fire `SessionEnd` during verification; close such sessions with
+`ai-memory finalize-session --agent qwen-code`.
+
+---
+
 ## Schema dialects for strict upstreams
 
 Some model APIs validate MCP tool parameter schemas against a narrower dialect

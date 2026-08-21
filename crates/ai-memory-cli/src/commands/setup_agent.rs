@@ -39,7 +39,7 @@ use crate::commands::install_mcp;
 use crate::commands::render_shared::{
     ANTIGRAVITY_LIFECYCLE_EVENTS, ANTIGRAVITY_TOOL_EVENTS, CODEX_PROFILE, COMMAND_CODE_PROFILE,
     CURSOR_PROFILE, GEMINI_PROFILE, KIMI_CODE_EVENTS, KIRO_CLI_V2_EVENTS, KIRO_CLI_V3_EVENTS,
-    build_claude_code_payload, build_devin_payload, build_grok_payload,
+    QWEN_CODE_EVENTS, build_claude_code_payload, build_devin_payload, build_grok_payload,
     hook_script_for_current_platform,
 };
 use crate::config::{Config, DEFAULT_SERVER_URL};
@@ -159,6 +159,9 @@ pub fn run(config: &Config, args: SetupAgentArgs) -> Result<()> {
         AgentChoice::KiroCliV3 => {
             emit_other(&emit_root, agent_sub, &args, &[&KIRO_CLI_V3_EVENTS]);
         }
+        // Qwen's success and failure post-tool events share one script,
+        // like Kimi's; the script listing is deduplicated below.
+        AgentChoice::QwenCode => emit_other(&emit_root, agent_sub, &args, &[&QWEN_CODE_EVENTS]),
         AgentChoice::OpenCode
         | AgentChoice::Pi
         | AgentChoice::Omp

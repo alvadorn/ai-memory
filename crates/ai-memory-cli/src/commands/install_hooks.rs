@@ -27,9 +27,10 @@ use crate::commands::path_util::home_dir;
 use crate::commands::render_shared::{
     ANTIGRAVITY_LIFECYCLE_EVENTS, ANTIGRAVITY_TOOL_EVENTS, CODEX_PROFILE, COMMAND_CODE_PROFILE,
     CURSOR_PROFILE, GEMINI_PROFILE, KIMI_CODE_EVENTS, KIRO_CLI_V2_EVENTS, KIRO_CLI_V3_EVENTS,
-    build_antigravity_payload_with_data_dir, build_claude_code_payload_with_data_dir,
-    build_devin_payload_with_data_dir, build_grok_payload_with_data_dir,
-    build_kiro_cli_v2_hooks_value, build_kiro_cli_v3_hooks_value, build_profile_payload_for_agent,
+    QWEN_CODE_EVENTS, build_antigravity_payload_with_data_dir,
+    build_claude_code_payload_with_data_dir, build_devin_payload_with_data_dir,
+    build_grok_payload_with_data_dir, build_kiro_cli_v2_hooks_value, build_kiro_cli_v3_hooks_value,
+    build_profile_payload_for_agent, build_qwen_code_payload_with_data_dir,
     hook_script_for_claude_code, hook_script_for_current_platform, kimi_code_hook_commands,
     local_hook_policy_v1_supported, ts_capture_policy_v1, ts_string_literal,
 };
@@ -107,6 +108,17 @@ pub(crate) fn gemini_settings_path() -> anyhow::Result<std::path::PathBuf> {
     Ok(home_dir()
         .context("could not locate $HOME for ~/.gemini/settings.json")?
         .join(".gemini")
+        .join("settings.json"))
+}
+
+/// Qwen Code's settings file — `~/.qwen/settings.json`. Qwen Code reads
+/// user-level hooks and `mcpServers` from the same file; project scope
+/// (`.qwen/settings.json` under the checkout) is written by passing
+/// `--config-file` explicitly. No documented env var relocates `~/.qwen`.
+pub(crate) fn qwen_code_settings_path() -> anyhow::Result<std::path::PathBuf> {
+    Ok(home_dir()
+        .context("could not locate $HOME for ~/.qwen/settings.json")?
+        .join(".qwen")
         .join("settings.json"))
 }
 
@@ -450,6 +462,10 @@ pub fn run(config: &Config, mut args: InstallHooksArgs) -> Result<()> {
                 let hooks_dir = resolve_hooks_dir(args.hooks_dir.as_deref(), args.agent)?;
                 apply_to_kiro_cli_v3_hooks(&hooks_dir, &server_url, auth, &config.data_dir, &args)
             }
+            AgentChoice::QwenCode => {
+                let hooks_dir = resolve_hooks_dir(args.hooks_dir.as_deref(), args.agent)?;
+                apply_to_qwen_code_settings(&hooks_dir, &server_url, auth, &config.data_dir, &args)
+            }
         };
     }
     let strategy = args.project_strategy.and_then(ProjectStrategyArg::baked);
@@ -558,6 +574,10 @@ pub fn run(config: &Config, mut args: InstallHooksArgs) -> Result<()> {
             let hooks_dir = resolve_hooks_dir(args.hooks_dir.as_deref(), args.agent)?;
             render_kiro_cli_v3(&hooks_dir, &server_url, auth, &config.data_dir, strategy)
         }
+        AgentChoice::QwenCode => {
+            let hooks_dir = resolve_hooks_dir(args.hooks_dir.as_deref(), args.agent)?;
+            render_qwen_code(&hooks_dir, &server_url, auth, &config.data_dir, strategy)
+        }
     }
 }
 
@@ -651,6 +671,7 @@ fn existing_agent_config(args: &InstallHooksArgs) -> Option<String> {
             AgentChoice::KimiCode => kimi_code_config_path().ok()?,
             AgentChoice::KiroCli => return None,
             AgentChoice::KiroCliV3 => kiro_cli_v3_hooks_path().ok()?,
+            AgentChoice::QwenCode => qwen_code_settings_path().ok()?,
         }
     };
     std::fs::read_to_string(path).ok()
@@ -931,6 +952,13 @@ fn infer_installed_mcp_config(agent: AgentChoice) -> Result<Option<InferredMcpCo
             &["mcpServers", "ai-memory"],
             "url",
         )),
+        // Qwen Code keeps MCP in the same settings.json as hooks, with
+        // `httpUrl` for streamable-HTTP entries.
+        McpClient::QwenCode => Ok(infer_json_mcp_config(
+            &content,
+            &["mcpServers", "ai-memory"],
+            "httpUrl",
+        )),
         McpClient::ClaudeDesktop => Ok(None),
         // MCP-only client: no AgentChoice counterpart routes here.
         McpClient::Swival => Ok(infer_json_mcp_config(
@@ -1005,6 +1033,7 @@ fn mcp_client_for_agent(agent: AgentChoice) -> Option<McpClient> {
         // mcp.json the installer can scrape.
         AgentChoice::Pi => None,
         AgentChoice::KiroCli | AgentChoice::KiroCliV3 => Some(McpClient::KiroCli),
+        AgentChoice::QwenCode => Some(McpClient::QwenCode),
     }
 }
 
@@ -1446,6 +1475,88 @@ fn apply_to_grok_settings(
                 .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
                 .as_object_mut()
                 .context("`hooks` is present in ai-memory.json but not an object")?;
+            for (event, value) in &our_hooks {
+                overlay_event_hooks(hooks, event, value);
+            }
+            Ok(())
+        })
+    })?;
+    println!(
+        "✓ {} {} ({})",
+        outcome.verb(),
+        path.display(),
+        match outcome {
+            ApplyOutcome::Created => "new file",
+            ApplyOutcome::Updated => "backup written next to it",
+            ApplyOutcome::NoOp => "already up to date",
+        }
+    );
+    Ok(())
+}
+
+/// Mutate Qwen Code's `~/.qwen/settings.json` (project scope via
+/// `--config-file .qwen/settings.json`) so Qwen Code fires the ai-memory
+/// lifecycle hooks. Qwen Code's hook schema is Claude Code's nested shape
+/// (matcher + inner hooks array; an empty matcher fires on every event,
+/// verified against v0.21.14), and hooks share the settings file with
+/// `mcpServers` — so the merge overlays only the `hooks` key and leaves
+/// everything else untouched. SessionStart fetches the handoff: Qwen Code
+/// injects `hookSpecificOutput.additionalContext`.
+fn apply_to_qwen_code_settings(
+    hooks_dir: &Path,
+    server_url: &str,
+    auth_token: Option<&str>,
+    data_dir: &Path,
+    args: &InstallHooksArgs,
+) -> Result<()> {
+    let staged = stage_hook_scripts(hooks_dir, "qwen-code")?;
+    apply_to_qwen_code_settings_with_staged(&staged, server_url, auth_token, data_dir, args)
+}
+
+#[cfg(test)]
+fn apply_to_qwen_code_settings_in(
+    hooks_dir: &Path,
+    server_url: &str,
+    auth_token: Option<&str>,
+    data_dir: &Path,
+    staging_data_local: &Path,
+    args: &InstallHooksArgs,
+) -> Result<()> {
+    let staged = stage_hook_scripts_in(hooks_dir, "qwen-code", staging_data_local)?;
+    apply_to_qwen_code_settings_with_staged(&staged, server_url, auth_token, data_dir, args)
+}
+
+fn apply_to_qwen_code_settings_with_staged(
+    staged: &Path,
+    server_url: &str,
+    auth_token: Option<&str>,
+    data_dir: &Path,
+    args: &InstallHooksArgs,
+) -> Result<()> {
+    let path = match &args.config_file {
+        Some(p) => p.clone(),
+        None => qwen_code_settings_path()?,
+    };
+    let command_dir = staged_command_dir(staged, "qwen-code");
+    let payload = build_qwen_code_payload_with_data_dir(
+        &command_dir,
+        server_url,
+        auth_token,
+        Some(data_dir),
+        args.project_strategy.and_then(ProjectStrategyArg::baked),
+    );
+    let our_hooks = payload
+        .get("hooks")
+        .and_then(|v| v.as_object())
+        .context("internal: build_qwen_code_payload didn't return a hooks object")?
+        .clone();
+    let outcome = apply_atomic(&path, |existing| {
+        mutate_json(existing, |root| {
+            let hooks = root
+                .entry("hooks")
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
+                .as_object_mut()
+                .context("`hooks` is present in settings.json but not an object")?;
             for (event, value) in &our_hooks {
                 overlay_event_hooks(hooks, event, value);
             }
@@ -4283,6 +4394,64 @@ fn render_grok(
     Ok(())
 }
 
+fn render_qwen_code(
+    hooks_dir: &Path,
+    server_url: &str,
+    auth_token: Option<&str>,
+    data_dir: &Path,
+    project_strategy: Option<&str>,
+) -> Result<()> {
+    // Soft check (same rationale as render_claude_code): warn, don't bail,
+    // so the docker host-path flow still works. The success and failure
+    // post-tool events share one script.
+    let mut seen = std::collections::BTreeSet::new();
+    for (_, script) in QWEN_CODE_EVENTS {
+        if !seen.insert(script) {
+            continue;
+        }
+        let script = hook_script_for_claude_code(script);
+        let abs = hooks_dir.join(script.as_ref());
+        if !abs.exists() {
+            eprintln!(
+                "# warning: {} not present on this filesystem. \
+                 If this command is running inside docker against a \
+                 host path, you can ignore this; otherwise extract \
+                 the scripts first with `ai-memory setup-agent`.",
+                abs.display()
+            );
+        }
+    }
+    let payload = build_qwen_code_payload_with_data_dir(
+        hooks_dir,
+        server_url,
+        auth_token,
+        Some(data_dir),
+        project_strategy,
+    );
+    let serialized =
+        serde_json::to_string_pretty(&payload).context("serializing qwen code hook config")?;
+    let config_path = qwen_code_settings_path()?;
+    println!(
+        "# Qwen Code hook config — merge into {}",
+        config_path.display()
+    );
+    println!("# (or .qwen/settings.json in a project for project scope)");
+    println!("# Hook scripts: {}", hooks_dir.display());
+    println!("# AI-memory server URL: {server_url}");
+    if auth_token.is_some() {
+        println!("# Auth: AI_MEMORY_AUTH_TOKEN embedded in each hook command below.");
+        println!(
+            "#       Treat {} as sensitive (chmod 600).",
+            config_path.display()
+        );
+    }
+    println!("# SessionStart fetches the pending handoff; Qwen Code injects it");
+    println!("# as hookSpecificOutput.additionalContext (verified against v0.21.14).");
+    println!();
+    println!("{serialized}");
+    Ok(())
+}
+
 /// Merge ai-memory's lifecycle hooks into Zero's user-level
 /// `~/.config/zero/hooks.json` (issue #156). Zero executes hook entries
 /// directly (`command` + `args`, JSON payload on stdin) — no scripts to
@@ -4834,6 +5003,116 @@ mod tests {
             "third-party hook must survive"
         );
         assert_eq!(hooks.len(), COMMAND_CODE_PROFILE.events.len());
+    }
+
+    #[test]
+    fn qwen_code_apply_uses_claude_shape_and_preserves_user_settings() {
+        let source = TempDir::new().unwrap();
+        stub_scripts(
+            source.path(),
+            &[
+                "session-start.sh",
+                "user-prompt-submit.sh",
+                "pre-tool-use.sh",
+                "post-tool-use.sh",
+                "pre-compact.sh",
+                "stop.sh",
+                "session-end.sh",
+                "subagent-start.sh",
+                "subagent-stop.sh",
+            ],
+        );
+        let staging = TempDir::new().unwrap();
+        let config_dir = TempDir::new().unwrap();
+        let config_path = config_dir.path().join("settings.json");
+        fs::write(
+            &config_path,
+            serde_json::json!({
+                "model": "qwen3-coder",
+                "mcpServers": {
+                    "other": { "httpUrl": "http://example.invalid/mcp" }
+                },
+                "hooks": {
+                    "SessionStart": [{
+                        "matcher": "",
+                        "hooks": [{"type": "command", "command": "third-party"}]
+                    }]
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let args = InstallHooksArgs {
+            agent: AgentChoice::QwenCode,
+            config_file: Some(config_path.clone()),
+            ..default_hook_args()
+        };
+
+        apply_to_qwen_code_settings_in(
+            source.path(),
+            "http://memory:49374",
+            Some("token"),
+            config_dir.path(),
+            staging.path(),
+            &args,
+        )
+        .unwrap();
+        let first = fs::read_to_string(&config_path).unwrap();
+        apply_to_qwen_code_settings_in(
+            source.path(),
+            "http://memory:49374",
+            Some("token"),
+            config_dir.path(),
+            staging.path(),
+            &args,
+        )
+        .unwrap();
+        let second = fs::read_to_string(&config_path).unwrap();
+        assert_eq!(first, second, "re-apply must be idempotent");
+
+        let value: serde_json::Value = serde_json::from_str(&second).unwrap();
+        assert_eq!(value["model"], "qwen3-coder");
+        assert_eq!(
+            value["mcpServers"]["other"]["httpUrl"], "http://example.invalid/mcp",
+            "mcpServers must survive the hooks merge"
+        );
+        let hooks = value["hooks"].as_object().unwrap();
+        for event in [
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "PostToolUseFailure",
+            "PreCompact",
+            "Stop",
+            "SessionEnd",
+            "SubagentStart",
+            "SubagentStop",
+        ] {
+            let entries = hooks[event].as_array().unwrap();
+            let joined = serde_json::to_string(entries).unwrap();
+            assert!(
+                joined.contains("qwen-code"),
+                "missing ai-memory entry for {event}: {joined}"
+            );
+            assert!(
+                joined.contains("\"matcher\":\"\""),
+                "qwen-code uses Claude Code's nested matcher shape: {joined}"
+            );
+        }
+        assert_eq!(
+            hooks["SessionStart"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|entry| serde_json::to_string(entry)
+                    .unwrap()
+                    .contains("third-party"))
+                .count(),
+            1,
+            "third-party hook must survive"
+        );
+        assert_eq!(hooks.len(), QWEN_CODE_EVENTS.len());
     }
 
     #[test]
@@ -5712,6 +5991,7 @@ model = "gpt-5"
             "opencode",
             "antigravity-cli",
             "kimi-code",
+            "qwen-code",
         ] {
             let dir = hooks_root.join(agent_dir);
             let mut sh = BTreeMap::new();

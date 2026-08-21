@@ -77,6 +77,33 @@ pub(crate) const KIMI_CODE_EVENTS: [(&str, &str); 10] = [
     ("SubagentStop", "subagent-stop.sh"),
 ];
 
+/// Qwen Code lifecycle events ai-memory hooks. Claude Code's 9-event
+/// vocabulary (`CLAUDE_CODE_EVENTS`) plus `PostToolUseFailure`: Qwen Code
+/// fires `PostToolUse` after successful tool execution only and reports
+/// failures separately (verified against v0.21.14). The failure entry
+/// reuses the post-tool-use script — the server reads the outcome from
+/// the payload.
+///
+/// Qwen Code wires hooks in `~/.qwen/settings.json` (project scope:
+/// `.qwen/settings.json`) using Claude Code's nested JSON shape.
+///
+/// Adding a hook event means updating this list AND adding the matching
+/// `.sh` and `.ps1` files under `hooks/qwen-code/` (a reused script like
+/// post-tool-use needs no new file). The install-hooks parity test fails
+/// if the bundle drifts.
+pub(crate) const QWEN_CODE_EVENTS: [(&str, &str); 10] = [
+    ("SessionStart", "session-start.sh"),
+    ("UserPromptSubmit", "user-prompt-submit.sh"),
+    ("PreToolUse", "pre-tool-use.sh"),
+    ("PostToolUse", "post-tool-use.sh"),
+    ("PostToolUseFailure", "post-tool-use.sh"),
+    ("PreCompact", "pre-compact.sh"),
+    ("Stop", "stop.sh"),
+    ("SessionEnd", "session-end.sh"),
+    ("SubagentStart", "subagent-start.sh"),
+    ("SubagentStop", "subagent-stop.sh"),
+];
+
 /// Kiro CLI v2-engine lifecycle events. Each pair is
 /// `(trigger-name-in-agent-config, POSIX hook-script-filename)`.
 ///
@@ -481,6 +508,33 @@ pub(crate) fn build_grok_payload_with_data_dir(
         HookCommandContext::new(
             HookCommandPlatform::for_bash_runner(),
             "grok",
+            data_dir,
+            project_strategy,
+        ),
+    )
+}
+
+/// Qwen Code hook payload for apply/render paths. Native commands are the
+/// default; explicit script fallback still points at the Qwen Code script
+/// bundle (its session-start fetches the handoff like Claude Code's —
+/// Qwen Code injects SessionStart `additionalContext`, verified against
+/// v0.21.14).
+pub(crate) fn build_qwen_code_payload_with_data_dir(
+    emit_root: &Path,
+    server_url: &str,
+    auth_token: Option<&str>,
+    data_dir: Option<&Path>,
+    project_strategy: Option<&str>,
+) -> serde_json::Value {
+    build_hook_payload_for_platform(
+        &QWEN_CODE_EVENTS,
+        emit_root,
+        server_url,
+        auth_token,
+        HookShape::Nested,
+        HookCommandContext::new(
+            HookCommandPlatform::for_bash_runner(),
+            "qwen-code",
             data_dir,
             project_strategy,
         ),

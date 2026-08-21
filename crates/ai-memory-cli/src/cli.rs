@@ -1089,6 +1089,11 @@ pub enum AgentChoice {
     /// `~/.commandcode/settings.json`.
     #[value(alias = "commandcode", alias = "cmdc", alias = "cmd")]
     CommandCode,
+    /// Qwen Code CLI (Alibaba Group) — JSON-config hooks in
+    /// `~/.qwen/settings.json` (project scope: `.qwen/settings.json`),
+    /// Claude Code-compatible nested hook shape.
+    #[value(alias = "qwen", alias = "qwen-code-cli")]
+    QwenCode,
 }
 
 impl AgentChoice {
@@ -1116,6 +1121,7 @@ impl AgentChoice {
             Self::KimiCode => AgentKind::KimiCode,
             Self::KiroCli | Self::KiroCliV3 => AgentKind::KiroCli,
             Self::CommandCode => AgentKind::CommandCode,
+            Self::QwenCode => AgentKind::QwenCode,
         }
     }
 
@@ -1226,6 +1232,11 @@ pub enum McpClient {
     /// Command Code CLI — `~/.commandcode/mcp.json`.
     #[value(alias = "commandcode", alias = "cmdc", alias = "cmd")]
     CommandCode,
+    /// Qwen Code CLI (Alibaba Group) — `mcpServers` map inside
+    /// `~/.qwen/settings.json` (project scope: `.qwen/settings.json`)
+    /// using the `httpUrl` field for streamable-HTTP servers.
+    #[value(alias = "qwen", alias = "qwen-code-cli")]
+    QwenCode,
     /// Swival CLI — project-scoped `.swival/mcp.json` using native HTTP.
     /// This integration is MCP-only; Swival's lifecycle callback does not
     /// expose a stable session identifier for reliable capture correlation.
@@ -2386,6 +2397,39 @@ mod tests {
                 panic!("expected install-hooks for {alias}");
             };
             assert_eq!(args.agent, AgentChoice::CommandCode);
+        }
+    }
+
+    #[test]
+    fn qwen_code_mcp_and_hook_aliases_parse() {
+        for alias in ["qwen-code", "qwen", "qwen-code-cli"] {
+            let mcp = Cli::try_parse_from([
+                "ai-memory",
+                "install-mcp",
+                "--client",
+                alias,
+                "--server-url",
+                "http://memory.example:49374",
+            ])
+            .unwrap_or_else(|error| panic!("failed to parse MCP alias {alias}: {error}"));
+            let Command::InstallMcp(args) = mcp.command else {
+                panic!("expected install-mcp for {alias}");
+            };
+            assert_eq!(args.client, McpClient::QwenCode);
+
+            let hooks = Cli::try_parse_from([
+                "ai-memory",
+                "install-hooks",
+                "--agent",
+                alias,
+                "--server-url",
+                "http://memory.example:49374",
+            ])
+            .unwrap_or_else(|error| panic!("failed to parse hook alias {alias}: {error}"));
+            let Command::InstallHooks(args) = hooks.command else {
+                panic!("expected install-hooks for {alias}");
+            };
+            assert_eq!(args.agent, AgentChoice::QwenCode);
         }
     }
 

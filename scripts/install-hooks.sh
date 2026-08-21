@@ -9,7 +9,7 @@
 #   ai-memory-install-hooks --agent claude-code
 #
 # Options:
-#   --agent <claude-code|codex|command-code|cursor|gemini-cli|kimi-code|kiro-cli|antigravity-cli|grok|opencode|openclaw|omp|oh-my-pi|pi>
+#   --agent <claude-code|codex|command-code|cursor|gemini-cli|kimi-code|kiro-cli|antigravity-cli|grok|opencode|openclaw|omp|oh-my-pi|pi|qwen-code>
 #                                                which agent (default: claude-code;
 #                                                generated-plugin agents print hints)
 #   --to <dir>                               install root (default: $HOME/.ai-memory/hooks)
@@ -46,11 +46,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$AGENT" in
-    claude-code|codex|command-code|cursor|gemini-cli|kimi-code|kiro-cli|antigravity-cli|grok|opencode|openclaw|omp|pi|oh-my-pi) ;;
+    claude-code|codex|command-code|cursor|gemini-cli|kimi-code|kiro-cli|antigravity-cli|grok|opencode|openclaw|omp|pi|oh-my-pi|qwen-code) ;;
     commandcode|cmdc|cmd) AGENT="command-code" ;;
+    qwen|qwen-code-cli) AGENT="qwen-code" ;;
     kiro) AGENT="kiro-cli" ;;
     *)
-        echo "unsupported agent: $AGENT (expected claude-code | codex | command-code | cursor | gemini-cli | kimi-code | kiro-cli | antigravity-cli | grok | opencode | openclaw | omp | pi | oh-my-pi)" >&2
+        echo "unsupported agent: $AGENT (expected claude-code | codex | command-code | cursor | gemini-cli | kimi-code | kiro-cli | antigravity-cli | grok | opencode | openclaw | omp | pi | oh-my-pi | qwen-code)" >&2
         exit 64 ;;
 esac
 
@@ -104,7 +105,9 @@ SCRIPTS=(
 
 # kimi-code also captures the subagent lifecycle (its bundle mirrors
 # hooks/claude-code/, which ships them); the default list omits them.
-if [[ "$AGENT" == "kimi-code" ]]; then
+# qwen-code mirrors kimi-code's bundle layout (10 events, one shared
+# post-tool-use script), so the same additions apply.
+if [[ "$AGENT" == "kimi-code" || "$AGENT" == "qwen-code" ]]; then
     SCRIPTS+=("subagent-start" "subagent-stop")
 fi
 

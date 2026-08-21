@@ -173,6 +173,13 @@ fn build_plan(args: &UninstallArgs) -> anyhow::Result<Vec<PlannedChange>> {
                 install_hooks::command_code_settings_path()?,
                 HookConfigShape::NestedHooksKey,
             ),
+            // Qwen Code keeps hooks under the `hooks` key of the same
+            // settings.json that holds mcpServers — same nested shape as
+            // Claude Code, so the same strip pass removes our entries.
+            (
+                install_hooks::qwen_code_settings_path()?,
+                HookConfigShape::NestedHooksKey,
+            ),
             // Grok's ~/.grok/hooks/ai-memory.json shares Claude Code's
             // JSON shape, so the same strip pass removes our entries.
             (
@@ -350,6 +357,7 @@ fn build_plan(args: &UninstallArgs) -> anyhow::Result<Vec<PlannedChange>> {
             KimiCode,
             KiroCli,
             CommandCode,
+            QwenCode,
             Swival,
         ] {
             let paths = if matches!(client, ClaudeCode) {
@@ -1092,6 +1100,7 @@ fn mcp_servers_path(client: McpClient) -> Option<&'static [&'static str]> {
         | McpClient::KimiCode
         | McpClient::KiroCli
         | McpClient::CommandCode
+        | McpClient::QwenCode
         | McpClient::Swival
         | McpClient::Devin => Some(&["mcpServers"]),
         McpClient::OpenCode => Some(&["mcp"]),
