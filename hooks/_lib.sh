@@ -160,6 +160,13 @@ ai_memory_resolve_cwd() {
 # backslash, so a Windows cwd went into the query string raw and the
 # request never reached the server (#188). Parity with the native
 # helper's url_encode in hook_capture.rs.
+#
+# The `& 255` is load-bearing: `printf '%d' "'<byte>"` yields a SIGNED char
+# in bash 3.2, which is `/bin/sh` on macOS and therefore the interpreter for
+# every `#!/bin/sh` hook in this bundle. A UTF-8 lead byte such as 0xC3 came
+# out as -61 and `%02X` rendered it `FFFFFFFFFFFFFFC3`, so any non-ASCII cwd
+# or project name produced a malformed query string. Masking to one byte is
+# a no-op under bash 5 and dash, which already return 195.
 ai_memory_url_encode() {
     LC_ALL=C
     s="$1"
@@ -170,7 +177,7 @@ ai_memory_url_encode() {
         s="$rest"
         case $c in
             [A-Za-z0-9._~-]) out="$out$c" ;;
-            *) out="$out$(printf '%%%02X' "'$c")" ;;
+            *) out="$out$(printf '%%%02X' "$(( $(printf '%d' "'$c") & 255 ))")" ;;
         esac
     done
     printf '%s' "$out"
