@@ -27,6 +27,11 @@ use crate::commands::path_util::{claude_config_dir, home_dir};
 use crate::commands::render_shared::bearer_header_value;
 use crate::config::{Config, DEFAULT_MCP_URL};
 
+/// Connection timeout written into Gemini CLI and Qwen Code MCP entries.
+/// Both default to `MCP_DEFAULT_TIMEOUT_MSEC` (ten minutes) when the key is
+/// absent — Qwen Code is a Gemini CLI fork and carries the same constant —
+/// which turns an unreachable ai-memory server into a ten-minute stall
+/// instead of a fast, recoverable failure.
 const GEMINI_MCP_TIMEOUT_MS: u64 = 5000;
 
 #[derive(Clone, Copy)]
@@ -724,7 +729,10 @@ fn build_mcp_entry(args: &InstallMcpArgs) -> Result<serde_json::Value> {
             // Qwen Code (verified against v0.21.14 `qwen mcp add --transport
             // http`) uses `httpUrl` with no `type` field — the transport is
             // implied by the key (`url` is legacy SSE, `command` stdio).
+            // `timeout` matches the Gemini CLI entry: the fork inherits
+            // Gemini's ten-minute default, which `qwen mcp add` leaves unset.
             entry.insert("httpUrl".into(), json!(server_url));
+            entry.insert("timeout".into(), json!(GEMINI_MCP_TIMEOUT_MS));
             if let Some(b) = &bearer {
                 entry.insert("headers".into(), json!({"Authorization": b}));
             }
@@ -1233,7 +1241,7 @@ fn render_qwen_code(args: &InstallMcpArgs) -> Result<String> {
          #\n\
          # Qwen Code uses `httpUrl` (not `url`) for streamable-HTTP servers;\n\
          # the equivalent CLI registration is:\n\
-         #   qwen mcp add --scope user --transport http {name} {url}\n\
+         #   qwen mcp add --transport http {name} {url}\n\
          # Pair with `ai-memory install-hooks --agent qwen-code --apply` for\n\
          # lifecycle capture; SessionStart injects handoffs as\n\
          # hookSpecificOutput.additionalContext.\n\
@@ -1962,6 +1970,13 @@ mod tests {
         assert!(!qwen.contains("\"transport\""));
         assert!(!qwen.contains("\"url\":"));
         assert!(!qwen.contains("\"serverUrl\""));
+        // Without an explicit `timeout` the fork falls back to Gemini's
+        // ten-minute MCP_DEFAULT_TIMEOUT_MSEC, so a dead server stalls a
+        // session instead of failing fast.
+        assert!(
+            qwen.contains(&format!("\"timeout\": {GEMINI_MCP_TIMEOUT_MS}")),
+            "{qwen}"
+        );
         assert!(qwen.contains("install-hooks --agent qwen-code"));
         let qwen_with_token = render_with_token(McpClient::QwenCode);
         assert!(qwen_with_token.contains("\"headers\""));

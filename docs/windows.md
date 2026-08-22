@@ -7,7 +7,7 @@ agent CLI actually runs.
 
 Run `install-mcp` and `install-hooks` from the same environment that
 launches Claude Code, Codex, Command Code, Devin CLI, Cursor, Gemini CLI, Kimi Code, Kiro CLI,
-Antigravity CLI, or another agent.
+Antigravity CLI, Qwen Code, or another agent.
 
 - If the agent runs inside WSL2, install ai-memory inside WSL2.
 - If the agent runs as a native Windows process, install ai-memory from
@@ -143,7 +143,8 @@ for each native Windows agent so existing hook entries receive the current
 command form.
 
 Use the matching `--client` / `--agent` values for other clients, for
-example `codex`, `command-code`, `devin`, `kimi-code`, `kiro-cli`, `cursor`, or `gemini-cli`.
+example `codex`, `command-code`, `devin`, `kimi-code`, `kiro-cli`, `cursor`,
+`gemini-cli`, or `qwen-code`.
 
 For Devin, `install-mcp --client devin --apply` writes MCP config to
 `%USERPROFILE%\.devin\config.json`. `install-hooks --agent devin --apply`
@@ -357,7 +358,8 @@ Windows agent builds.
   `AI_MEMORY_HOOK_PLATFORM=windows-bash` restores the Git Bash `bash -c`
   path. WSL2 Claude Code uses normal WSL `.sh` paths.
 - Codex, Command Code, Devin CLI, OpenCode, Cursor, Gemini CLI, Antigravity
-  CLI, Grok Build CLI, Zero, Kimi Code, and OpenClaw may each choose different
+  CLI, Grok Build CLI, Zero, Kimi Code, Qwen Code, and OpenClaw may each
+  choose different
   Windows config locations or shell execution behavior. ai-memory uses
   the current best-known defaults, but they need validation on real
   installations.

@@ -114,7 +114,10 @@ pub(crate) fn gemini_settings_path() -> anyhow::Result<std::path::PathBuf> {
 /// Qwen Code's settings file — `~/.qwen/settings.json`. Qwen Code reads
 /// user-level hooks and `mcpServers` from the same file; project scope
 /// (`.qwen/settings.json` under the checkout) is written by passing
-/// `--config-file` explicitly. No documented env var relocates `~/.qwen`.
+/// `--config-file` explicitly. No env var relocates it: v0.21.14 hardcodes
+/// `QWEN_DIR = ".qwen"` and resolves it against `process.env.HOME` only
+/// (it *exports* `QWEN_DIR` to hook subprocesses but never reads it back),
+/// so there is no `KIMI_CODE_HOME`/`KIRO_HOME` equivalent to honour here.
 pub(crate) fn qwen_code_settings_path() -> anyhow::Result<std::path::PathBuf> {
     Ok(home_dir()
         .context("could not locate $HOME for ~/.qwen/settings.json")?

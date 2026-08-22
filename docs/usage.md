@@ -311,6 +311,9 @@ Client cleanup hints:
   under `$KIRO_HOME` when set) for stale ai-memory entries.
 - OpenCode, OpenClaw, and OMP: check MCP config and plugin/extension directories;
   move old memory plugins to a disabled/quarantine directory before deleting.
+- Qwen Code: check the `mcpServers` map and the `hooks` object in
+  `~/.qwen/settings.json` (and `.qwen/settings.json` for project scope) for
+  stale ai-memory entries — Qwen Code keeps both in the same file.
 - VS Code Copilot, Claude Desktop, and Zed: these are MCP-only, so confirm
   whether the old tool was providing capture hooks elsewhere. Zed's MCP
   entries live under `context_servers` in its user `settings.json`.
@@ -437,8 +440,8 @@ page and no argument, ai-memory appends no preference block.
 
 Durable project rules belong in the agent's rules file, not only in the
 wiki. For Claude Code that is `CLAUDE.md`; for Codex, Devin CLI, OpenCode,
-Cursor, Gemini CLI, Grok Build CLI, Kimi Code, Kiro CLI, and Command Code it is usually
-`AGENTS.md`.
+Cursor, Gemini CLI, Grok Build CLI, Kimi Code, Kiro CLI, Command Code, and
+Qwen Code it is usually `AGENTS.md`.
 
 The consolidator classifies compiled observations as `decision`,
 `fact`, `rule`, or `gotcha`. Rule-tagged pages are routed to

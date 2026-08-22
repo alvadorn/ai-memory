@@ -7,23 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Qwen Code CLI (Alibaba Group) is now a supported agent. `install-hooks
-  --agent qwen-code --apply` merges Claude Code-shaped lifecycle hooks into
-  `~/.qwen/settings.json` (project scope via `--config-file .qwen/settings.json`),
-  `install-mcp --client qwen-code` writes the `mcpServers` entry with Qwen
-  Code's `httpUrl` field into the same file, and `hooks/qwen-code/` ships the
-  10-event script bundle (including `PostToolUseFailure` and the subagent
-  boundaries). SessionStart fetches the pending handoff and delivers it via
-  `hookSpecificOutput.additionalContext`, verified against Qwen Code v0.21.14:
-  hook events fire with Claude Code-compatible payloads (`session_id`, `cwd`,
-  `tool_name`, `tool_input`, `tool_use_id`), and an empty matcher fires on
-  every event. Sessions persist under the new `qwen-code` agent kind
-  (V50 migration), native hook commands enforce capture exclusions, and the
-  `memory_install_self_routing` payload maps `qwen_code` to `AGENTS.md`.
-  In headless `qwen -p` runs SessionEnd did not fire during verification —
-  close such sessions with `ai-memory finalize-session --agent qwen-code`.
-
 ### Fixed
 - Documented the `ai-memory status` hook-spool section in
   `docs/deploy.md`. It shipped with no operator-facing description, in the
@@ -37,6 +20,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changes. (#449)
 
 ### Added
+- Qwen Code CLI (Alibaba Group) is now a supported agent. `install-hooks
+  --agent qwen-code --apply` merges Claude Code-shaped lifecycle hooks into
+  `~/.qwen/settings.json` (project scope via `--config-file .qwen/settings.json`),
+  `install-mcp --client qwen-code` writes the `mcpServers` entry with Qwen
+  Code's `httpUrl` field into the same file, and `hooks/qwen-code/` ships the
+  10-event script bundle (including `PostToolUseFailure` and the subagent
+  boundaries). SessionStart fetches the pending handoff and delivers it via
+  `hookSpecificOutput.additionalContext`, verified against Qwen Code v0.21.14:
+  hook events fire with Claude Code-compatible payloads (`session_id`, `cwd`,
+  `tool_name`, `tool_input`, `tool_use_id`), and an empty matcher fires on
+  every event. A failed tool call arrives as `PostToolUseFailure` and is
+  recorded with `outcome: error` from the payload's `error` field. Sessions
+  persist under the new `qwen-code` agent kind (V50 migration), native hook
+  commands enforce capture exclusions, and the `memory_install_self_routing`
+  payload maps `qwen_code` to `AGENTS.md`. The MCP entry pins `timeout` the
+  same way the Gemini CLI entry does, because Qwen Code inherits Gemini's
+  ten-minute `MCP_DEFAULT_TIMEOUT_MSEC`. In headless `qwen -p` runs SessionEnd
+  did not fire during verification — close such sessions with
+  `ai-memory finalize-session --agent qwen-code`. (#455)
+- `run_shell_command` is now classified as a non-file tool by the capture
+  policy. It is Qwen Code's and Gemini CLI's shell tool, and both previously
+  reported it as an unknown tool family. Capture decisions are unchanged (an
+  active policy keeps non-file and unknown tools alike); only the recorded
+  `tool_family` and canonical tool name become accurate. (#455)
 - `install-hooks --agent claude-code --no-capture-prompts` can now omit
   ai-memory's `UserPromptSubmit` hook, preventing prompt text from entering the
   local spool or wire while leaving session, tool, compaction, and handoff

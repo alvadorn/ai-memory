@@ -794,6 +794,33 @@ fn hook_installer_writes_only_command_code_stable_events() {
     assert_eq!(names, expected);
 }
 
+/// Qwen Code takes the extended bundle: the seven default events plus the
+/// subagent boundaries, driven by the installer's `qwen-code` branch. The
+/// `qwen` alias must resolve to the canonical directory name, and the shared
+/// `post-tool-use.sh` is installed once even though two events reuse it.
+#[cfg(unix)]
+#[test]
+fn hook_installer_writes_the_qwen_code_subagent_bundle() {
+    const HOOKS: &[&str] = &[
+        "post-tool-use",
+        "pre-compact",
+        "pre-tool-use",
+        "session-end",
+        "session-start",
+        "stop",
+        "subagent-start",
+        "subagent-stop",
+        "user-prompt-submit",
+    ];
+
+    let names = installed_hook_names("qwen", "qwen-code", HOOKS);
+    let expected = HOOKS
+        .iter()
+        .map(|hook| format!("{hook}.sh"))
+        .collect::<Vec<_>>();
+    assert_eq!(names, expected);
+}
+
 #[cfg(unix)]
 #[test]
 fn managed_host_commands_use_native_path_and_remote_server_without_docker() {

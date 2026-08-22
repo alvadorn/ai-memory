@@ -81,11 +81,17 @@ pub(crate) const KIMI_CODE_EVENTS: [(&str, &str); 10] = [
 /// vocabulary (`CLAUDE_CODE_EVENTS`) plus `PostToolUseFailure`: Qwen Code
 /// fires `PostToolUse` after successful tool execution only and reports
 /// failures separately (verified against v0.21.14). The failure entry
-/// reuses the post-tool-use script — the server reads the outcome from
-/// the payload.
+/// reuses the post-tool-use script and the same `--event post-tool-use`
+/// token; `HookEvent::parse` aliases `PostToolUseFailure` to `PostToolUse`,
+/// and `tool_observation_outcome` recovers success vs failure from the
+/// payload (`tool_response` vs `error`), which is why one script suffices.
 ///
 /// Qwen Code wires hooks in `~/.qwen/settings.json` (project scope:
-/// `.qwen/settings.json`) using Claude Code's nested JSON shape.
+/// `.qwen/settings.json`) using Claude Code's nested JSON shape. All ten
+/// names below are real v0.21.14 events, including `SubagentStart` and
+/// `SubagentStop`. Qwen Code also defines `StopFailure`, `PostCompact`,
+/// `SessionDelete`, `MessageDisplay`, `Notification`, `PermissionRequest`,
+/// and the Todo events; none is wired, so none is captured.
 ///
 /// Adding a hook event means updating this list AND adding the matching
 /// `.sh` and `.ps1` files under `hooks/qwen-code/` (a reused script like

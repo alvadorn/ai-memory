@@ -287,6 +287,15 @@ function Invoke-AiMemoryHook {
         [Parameter(Mandatory = $true)] [string] $Agent,
         [switch] $FetchHandoff,
         [switch] $AntigravityPreInvocationOutput,
+        # Wrap the fetched handoff in the SessionStart JSON envelope
+        # (`hookSpecificOutput.additionalContext`) instead of writing it raw.
+        # Required by agents that parse hook stdout as JSON and only treat a
+        # parsed `additionalContext` as session context: Qwen Code v0.21.14
+        # falls back to an informational message when JSON.parse throws, so a
+        # raw handoff would be consumed (the GET is destructive) and never
+        # injected. Claude Code accepts either form, which is why the POSIX
+        # scripts emit the envelope unconditionally.
+        [switch] $SessionStartEnvelope,
         # Deliver the `[briefing]` compiled project brief on the FIRST
         # handoff fetch of a session only (kimi-code's user-prompt path:
         # kimi discards SessionStart hook stdout, so the brief rides the
@@ -302,11 +311,14 @@ function Invoke-AiMemoryHook {
         [Console]::Out.Write("{}")
         return
     }
-    # Assistant/Stop capture (#196) is native-only. Scoped to claude-code + stop
-    # so a PostToolUse whose tool output legitimately contains the literal string
-    # is unaffected. If a Stop payload still carries the raw field, drop the whole
-    # event rather than POST it verbatim (the script fallback cannot sanitize it).
-    if ($Agent -eq "claude-code" -and $Event -eq "stop" -and $Payload -and $Payload.Contains('"last_assistant_message"')) {
+    # Assistant/Stop capture (#196) is native-only. Scoped to stop, and to the
+    # agents whose documented Stop payload carries the field (claude-code, and
+    # qwen-code per its v0.21.14 hooks reference), so a PostToolUse whose tool
+    # output legitimately contains the literal string is unaffected. If a Stop
+    # payload still carries the raw field, drop the whole event rather than POST
+    # it verbatim (the script fallback cannot sanitize it). Keep this list in
+    # sync with the `case` guard in the matching `hooks/<agent>/stop.sh`.
+    if ((@("claude-code", "qwen-code") -contains $Agent) -and ($Event -eq "stop") -and $Payload -and $Payload.Contains('"last_assistant_message"')) {
         return
     }
     $Cwd = Resolve-AiMemoryCwd -Payload $Payload -Agent $Agent
@@ -387,14 +399,22 @@ function Invoke-AiMemoryHook {
                         injectSteps = @(@{ ephemeralMessage = $Response.Content })
                     }
                     [Console]::Out.Write(($Payload | ConvertTo-Json -Depth 5 -Compress))
+                } elseif ($SessionStartEnvelope) {
+                    $Payload = @{
+                        hookSpecificOutput = @{
+                            hookEventName = "SessionStart"
+                            additionalContext = $Response.Content
+                        }
+                    }
+                    [Console]::Out.Write(($Payload | ConvertTo-Json -Depth 5 -Compress))
                 } else {
                     [Console]::Out.Write($Response.Content)
                 }
-            } elseif ($AntigravityPreInvocationOutput) {
+            } elseif ($AntigravityPreInvocationOutput -or $SessionStartEnvelope) {
                 [Console]::Out.Write("{}")
             }
         } catch {
-            if ($AntigravityPreInvocationOutput) {
+            if ($AntigravityPreInvocationOutput -or $SessionStartEnvelope) {
                 [Console]::Out.Write("{}")
             }
         }

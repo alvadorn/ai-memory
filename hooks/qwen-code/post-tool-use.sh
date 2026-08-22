@@ -2,8 +2,9 @@
 # Qwen Code post-tool-use hook.
 # Forwards the event JSON to the ai-memory server, fire-and-forget.
 # Qwen Code fires PostToolUse only on successful tool calls and reports
-# failures separately as PostToolUseFailure, which reuses this script
-# (the server reads the outcome from the payload).
+# failures separately as PostToolUseFailure, which reuses this script and
+# posts the same event=post-tool-use. The server recovers the outcome from
+# the payload: `tool_response` means success, `error` means failure.
 # Walks up from the payload's cwd for a .ai-memory.toml marker file;
 # if found, appends marker query params to the URL so the server
 # applies the declared workspace/project/strategy instead of

@@ -205,6 +205,25 @@ pub(crate) fn tool_observation_outcome(agent: AgentKind, raw: &Value) -> ToolOut
         {
             ToolOutcome::Error
         }
+        // Qwen Code splits the tool lifecycle across two events with disjoint,
+        // documented payloads (v0.21.14 hooks reference): `PostToolUse` fires
+        // only on success and carries `tool_response`; `PostToolUseFailure`
+        // carries `error` instead. Both reach the router as
+        // `HookEvent::PostToolUse`, so the payload is the only discriminator.
+        // Neither key present leaves the outcome unknown rather than guessed.
+        AgentKind::QwenCode => {
+            if raw
+                .get("error")
+                .and_then(Value::as_str)
+                .is_some_and(|error| !error.is_empty())
+            {
+                ToolOutcome::Error
+            } else if raw.get("tool_response").is_some() {
+                ToolOutcome::Success
+            } else {
+                ToolOutcome::Unknown
+            }
+        }
         _ => ToolOutcome::Unknown,
     }
 }
@@ -1165,6 +1184,57 @@ mod tests {
             ("glob", ToolFamily::SearchList),
         ] {
             assert_eq!(family(tool), expected, "tool: {tool}");
+        }
+    }
+
+    /// Qwen Code's success and failure tool events both arrive as
+    /// `HookEvent::PostToolUse` (the parser aliases `PostToolUseFailure`), so
+    /// the outcome has to come from the payload. Their documented field sets
+    /// are disjoint: success carries `tool_response`, failure carries `error`.
+    #[test]
+    fn qwen_code_tool_outcome_separates_success_from_post_tool_use_failure() {
+        let success = json!({
+            "hook_event_name": "PostToolUse",
+            "tool_name": "run_shell_command",
+            "tool_input": { "command": "cargo test" },
+            "tool_response": { "output": "ok" },
+            "tool_use_id": "toolu_1787336664918_77vjbp4ju"
+        });
+        assert_eq!(
+            tool_observation_outcome(AgentKind::QwenCode, &success),
+            ToolOutcome::Success
+        );
+
+        let failure = json!({
+            "hook_event_name": "PostToolUseFailure",
+            "tool_name": "run_shell_command",
+            "tool_input": { "command": "cargo test" },
+            "error": "Command failed with exit code 101",
+            "is_interrupt": false,
+            "tool_use_id": "toolu_1787336664918_77vjbp4ju"
+        });
+        assert_eq!(
+            tool_observation_outcome(AgentKind::QwenCode, &failure),
+            ToolOutcome::Error
+        );
+
+        // A user interrupt is still a failed call.
+        let interrupted = json!({ "error": "Interrupted", "is_interrupt": true });
+        assert_eq!(
+            tool_observation_outcome(AgentKind::QwenCode, &interrupted),
+            ToolOutcome::Error
+        );
+
+        // Neither key: never guess. An empty `error` is not a failure signal.
+        for payload in [
+            json!({ "tool_name": "edit", "tool_input": {} }),
+            json!({ "tool_name": "edit", "error": "" }),
+        ] {
+            assert_eq!(
+                tool_observation_outcome(AgentKind::QwenCode, &payload),
+                ToolOutcome::Unknown,
+                "payload: {payload}"
+            );
         }
     }
 

@@ -1,3 +1,3 @@
 . "$PSScriptRoot\..\lib\ai-memory-hook.ps1"
-Invoke-AiMemoryHook -Event "session-start" -Agent "qwen-code" -FetchHandoff
+Invoke-AiMemoryHook -Event "session-start" -Agent "qwen-code" -FetchHandoff -SessionStartEnvelope
 exit 0
